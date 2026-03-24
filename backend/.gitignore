@@ -1,0 +1,14 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local database
+*.db
+
+# Bytecode, logs, and temp files
+*.log
+*.pot
+*.mo
+
+# Ignore local settings/config if any
+config.ini

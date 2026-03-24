@@ -1,0 +1,17 @@
+# macOS system files
+.DS_Store
+
+# Python virtual environment
+.venv/
+
+# Environment / sensitive files
+.env
+.env.*
+
+# Logs
+*.log
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
