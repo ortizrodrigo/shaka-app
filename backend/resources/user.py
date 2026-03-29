@@ -58,8 +58,8 @@ class UserList(MethodView):
   def get(self):
     return UserModel.query.all()
 
-  @blp.arguments(UserSchema)
   @blp.response(201, UserSchema)
+  @blp.arguments(UserSchema)
   def post(self, user_data):
     hashed_password = argon2.hash(user_data["password"])
     user = UserModel(
@@ -82,8 +82,8 @@ class UserList(MethodView):
 
 @blp.route("/me")
 class Me(MethodView):
-  @jwt_required()
   @blp.response(200, UserSchema)
+  @jwt_required()
   def get(self):
     current_user_id = int(get_jwt_identity())
     user = UserModel.query.get_or_404(current_user_id)

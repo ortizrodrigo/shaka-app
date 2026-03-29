@@ -10,6 +10,7 @@ from flask_jwt_extended import (
   get_jwt,
   get_jwt_identity,
   jwt_required,
+  decode_token
 )
 
 from passlib.hash import argon2
@@ -29,8 +30,8 @@ def build_token_payload(token, expires_delta):
 
 @blp.route("/auth/login")
 class Login(MethodView):
-  @blp.arguments(LoginSchema)
   @blp.response(200, TokenPairSchema)
+  @blp.arguments(LoginSchema)
   def post(self, login_data):
     username = login_data["username"]
     user = UserModel.query.filter_by(username=username).first()
@@ -48,8 +49,8 @@ class Login(MethodView):
 
 @blp.route("/auth/refresh")
 class Refresh(MethodView):
-  @jwt_required(refresh=True)
   @blp.response(200, TokenPairSchema)
+  @jwt_required(refresh=True)
   def post(self):
     jwt_payload = get_jwt()
     jti = jwt_payload["jti"]

@@ -33,9 +33,9 @@ class ChatList(MethodView):
           .all()
       )
 
-  @jwt_required()
-  @blp.arguments(ChatCreateSchema)
   @blp.response(201, ChatSchema)
+  @blp.arguments(ChatCreateSchema)
+  @jwt_required()
   def post(self, chat_data):
       current_user_id = int(get_jwt_identity())
 
