@@ -20,37 +20,6 @@ class User(MethodView):
     user = UserModel.query.get_or_404(user_id)
     return user
 
-  @jwt_required()
-  def delete(self, user_id):
-    current_user_id = int(get_jwt_identity())
-    if current_user_id != user_id:
-      abort(403, message="You can only delete your own account.")
-
-    user = UserModel.query.get_or_404(user_id)
-
-    try:
-      tokens = TokenBlocklistModel.query.filter_by(user_id=user.id).all()
-      for token in tokens:
-        db.session.delete(token)
-
-      # Optional: if you want to revoke the current JWT used for deletion
-      jwt_payload = get_jwt()
-      current_token = TokenBlocklistModel(
-        jti=jwt_payload["jti"],
-        user_id=user.id,
-        token_type=jwt_payload.get("type"),
-        expires_at=datetime.fromtimestamp(jwt_payload.get("exp"), tz=timezone.utc),
-      )
-      db.session.add(current_token)
-
-      db.session.delete(user)
-      db.session.commit()
-    except SQLAlchemyError:
-      db.session.rollback()
-      abort(500, message="An error occurred while deleting the user.")
-
-    return {"message": "User deleted."}, 200
-
 
 @blp.route("/user")
 class UserList(MethodView):
@@ -58,8 +27,8 @@ class UserList(MethodView):
   def get(self):
     return UserModel.query.all()
 
-  @blp.response(201, UserSchema)
   @blp.arguments(UserSchema)
+  @blp.response(201, UserSchema)
   def post(self, user_data):
     hashed_password = argon2.hash(user_data["password"])
     user = UserModel(
@@ -82,9 +51,35 @@ class UserList(MethodView):
 
 @blp.route("/me")
 class Me(MethodView):
-  @blp.response(200, UserSchema)
   @jwt_required()
+  @blp.response(200, UserSchema)
   def get(self):
     current_user_id = int(get_jwt_identity())
     user = UserModel.query.get_or_404(current_user_id)
     return user
+
+  @jwt_required()
+  def delete(self):
+    current_user_id = int(get_jwt_identity())
+    user = UserModel.query.get_or_404(current_user_id)
+
+    try:
+      jwt_payload = get_jwt()
+      current_token = TokenBlocklistModel(
+        jti=jwt_payload["jti"],
+        user_id=user.id,
+        token_type=jwt_payload.get("type"),
+        expires_at=datetime.fromtimestamp(jwt_payload.get("exp"), tz=timezone.utc),
+      )
+      db.session.add(current_token)
+      db.session.flush()
+
+      TokenBlocklistModel.query.filter_by(user_id=user.id).delete()
+
+      db.session.delete(user)
+      db.session.commit()
+    except SQLAlchemyError:
+      db.session.rollback()
+      abort(500, message="An error occurred while deleting the user.")
+
+    return {"message": "User deleted."}, 200
