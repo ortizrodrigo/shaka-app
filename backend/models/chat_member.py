@@ -12,6 +12,7 @@ class ChatMemberModel(db.Model):
     
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     chat_id = db.Column(db.Integer, db.ForeignKey("chats.id"), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default="member")
     joined_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = db.relationship("UserModel", back_populates="chats")

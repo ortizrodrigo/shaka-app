@@ -1,5 +1,6 @@
 from extensions import db
 from datetime import datetime, timezone
+from sqlalchemy.ext.associationproxy import association_proxy
 
 class ChatModel(db.Model):
     __tablename__ = "chats"
@@ -11,3 +12,5 @@ class ChatModel(db.Model):
 
     members = db.relationship("ChatMemberModel", back_populates="chat", lazy=True, cascade="all, delete-orphan")
     messages = db.relationship("MessageModel", back_populates="chat", lazy=True, cascade="all, delete-orphan")
+
+    member_users = association_proxy("members", "user")

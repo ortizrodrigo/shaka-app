@@ -19,3 +19,7 @@ class UserSchema(Schema):
     def validate_not_blank(self, value, **kwargs):
         if not value or value.strip() == "":
             raise ValidationError("This field cannot be blank.")
+        
+class UserSummarySchema(Schema):
+    id = fields.Int(dump_only=True)
+    username = fields.Str(required=True, validate=validate.Length(min=3, max=80))
