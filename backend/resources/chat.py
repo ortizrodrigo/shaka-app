@@ -12,43 +12,58 @@ blp = Blueprint("chats", __name__, description="Operations on Chats")
 
 def chat_with_members(chat_id):
   return (
-      ChatModel.query
-      .options(joinedload(ChatModel.members).joinedload(ChatMemberModel.user))
-      .get_or_404(chat_id)
+    ChatModel.query
+    .options(joinedload(ChatModel.members).joinedload(ChatMemberModel.user))
+    .get_or_404(chat_id)
   )
 
 @blp.route("/chat/<int:chat_id>")
 class Chat(MethodView):
+  @jwt_required()
   @blp.response(200, ChatSchema)
   def get(self, chat_id):
-      return chat_with_members(chat_id)
+    current_user_id = int(get_jwt_identity())
+
+    membership = ChatMemberModel.query.filter_by(
+      chat_id=chat_id,
+      user_id=current_user_id
+    ).first()
+    if not membership:
+      abort(403, message="You are not a member of this chat.")
+
+    return chat_with_members(chat_id)
 
 @blp.route("/chat")
 class ChatList(MethodView):
+  @jwt_required()
   @blp.response(200, ChatSchema(many=True))
   def get(self):
-      return (
-          ChatModel.query
-          .options(joinedload(ChatModel.members).joinedload(ChatMemberModel.user))
-          .all()
-      )
+    current_user_id = int(get_jwt_identity())
 
-  @blp.response(201, ChatSchema)
-  @blp.arguments(ChatCreateSchema)
+    return (
+      ChatModel.query
+      .join(ChatMemberModel)
+      .filter(ChatMemberModel.user_id == current_user_id)
+      .options(joinedload(ChatModel.members).joinedload(ChatMemberModel.user))
+      .all()
+    )
+
   @jwt_required()
+  @blp.arguments(ChatCreateSchema)
+  @blp.response(201, ChatSchema)
   def post(self, chat_data):
-      current_user_id = int(get_jwt_identity())
+    current_user_id = int(get_jwt_identity())
 
-      chat = ChatModel(name=chat_data.get("name"))
+    chat = ChatModel(name=chat_data.get("name"))
 
-      owner_membership = ChatMemberModel(user_id=current_user_id, role="owner")
-      chat.members.append(owner_membership)
+    owner_membership = ChatMemberModel(user_id=current_user_id, role="owner")
+    chat.members.append(owner_membership)
 
-      try:
-        db.session.add(chat)
-        db.session.commit()
-      except SQLAlchemyError:
-        db.session.rollback()
-        abort(500, message="An error occurred while creating the chat.")
+    try:
+      db.session.add(chat)
+      db.session.commit()
+    except SQLAlchemyError:
+      db.session.rollback()
+      abort(500, message="An error occurred while creating the chat.")
 
-      return chat_with_members(chat.id)
+    return chat_with_members(chat.id)
