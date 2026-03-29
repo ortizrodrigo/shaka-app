@@ -7,12 +7,12 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from extensions import db
 from models import UserModel, TokenBlocklistModel
-from schemas import UserSchema, UserPublicSchema
-from decorators import admin_required
+from schemas import UserSchema, UserPublicSchema, UserUpdateSchema, UserSearchQuerySchema
 
 from datetime import datetime, timezone
 
 blp = Blueprint("users", __name__, description="Operations on Users")
+
 
 @blp.route("/user/<int:user_id>")
 class User(MethodView):
@@ -25,10 +25,18 @@ class User(MethodView):
 
 @blp.route("/user")
 class UserList(MethodView):
-  @admin_required
-  @blp.response(200, UserSchema(many=True))
-  def get(self):
-    return UserModel.query.all()
+  @jwt_required()
+  @blp.arguments(UserSearchQuerySchema, location="query")
+  @blp.response(200, UserPublicSchema(many=True))
+  def get(self, query_args):
+    search_term = query_args["search"].strip().lower()
+
+    return (
+      UserModel.query
+      .filter(UserModel.username.ilike(f"%{search_term}%"))
+      .limit(20)
+      .all()
+    )
 
   @blp.arguments(UserSchema)
   @blp.response(201, UserSchema)
@@ -60,6 +68,40 @@ class Me(MethodView):
   def get(self):
     current_user_id = int(get_jwt_identity())
     user = UserModel.query.get_or_404(current_user_id)
+    return user
+
+  @jwt_required()
+  @blp.arguments(UserUpdateSchema)
+  @blp.response(200, UserSchema)
+  def patch(self, update_data, **kwargs):
+    current_user_id = int(get_jwt_identity())
+    user = UserModel.query.get_or_404(current_user_id)
+
+    new_password = update_data.get("new_password")
+    current_password = update_data.get("current_password")
+
+    if new_password:
+      if not current_password:
+        abort(400, message="current_password is required to set a new password.")
+      if not argon2.verify(current_password, user.password_hash):
+        abort(401, message="Current password is incorrect.")
+      user.password_hash = argon2.hash(new_password)
+
+    if "username" in update_data:
+      user.username = update_data["username"]
+
+    if "email" in update_data:
+      user.email = update_data["email"]
+
+    try:
+      db.session.commit()
+    except IntegrityError:
+      db.session.rollback()
+      abort(409, message="That username or email is already taken.")
+    except SQLAlchemyError:
+      db.session.rollback()
+      abort(500, message="An error occurred while updating your profile.")
+
     return user
 
   @jwt_required()
