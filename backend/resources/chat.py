@@ -5,10 +5,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
-from models import ChatModel, ChatMemberModel
-from schemas import ChatSchema, ChatCreateSchema
+from models import ChatModel, ChatMemberModel, MessageModel
+from schemas import ChatSchema, ChatCreateSchema, MessageSchema
+from services.chat import get_membership
+from constants.roles import OWNER_ROLE
 
 blp = Blueprint("chats", __name__, description="Operations on Chats")
+
 
 def chat_with_members(chat_id):
   return (
@@ -17,6 +20,7 @@ def chat_with_members(chat_id):
     .get_or_404(chat_id)
   )
 
+
 @blp.route("/chat/<int:chat_id>")
 class Chat(MethodView):
   @jwt_required()
@@ -24,14 +28,52 @@ class Chat(MethodView):
   def get(self, chat_id):
     current_user_id = int(get_jwt_identity())
 
-    membership = ChatMemberModel.query.filter_by(
-      chat_id=chat_id,
-      user_id=current_user_id
-    ).first()
-    if not membership:
+    if not get_membership(chat_id, current_user_id):
       abort(403, message="You are not a member of this chat.")
 
     return chat_with_members(chat_id)
+
+  @jwt_required()
+  def delete(self, chat_id):
+    current_user_id = int(get_jwt_identity())
+
+    membership = get_membership(chat_id, current_user_id)
+    if not membership:
+      abort(403, message="You are not a member of this chat.")
+    if membership.role != OWNER_ROLE:
+      abort(403, message="Only the owner can delete this chat.")
+
+    chat = ChatModel.query.get_or_404(chat_id)
+
+    try:
+      db.session.delete(chat)
+      db.session.commit()
+    except SQLAlchemyError:
+      db.session.rollback()
+      abort(500, message="An error occurred while deleting the chat.")
+
+    return {"message": "Chat deleted."}, 200
+
+
+@blp.route("/chat/<int:chat_id>/messages")
+class ChatMessageList(MethodView):
+  @jwt_required()
+  @blp.response(200, MessageSchema(many=True))
+  def get(self, chat_id):
+    current_user_id = int(get_jwt_identity())
+
+    if not get_membership(chat_id, current_user_id):
+      abort(403, message="You are not a member of this chat.")
+
+    ChatModel.query.get_or_404(chat_id)
+
+    return (
+      MessageModel.query
+      .filter_by(chat_id=chat_id)
+      .order_by(MessageModel.created_at.asc())
+      .all()
+    )
+
 
 @blp.route("/chat")
 class ChatList(MethodView):
@@ -55,8 +97,7 @@ class ChatList(MethodView):
     current_user_id = int(get_jwt_identity())
 
     chat = ChatModel(name=chat_data.get("name"))
-
-    owner_membership = ChatMemberModel(user_id=current_user_id, role="owner")
+    owner_membership = ChatMemberModel(user_id=current_user_id, role=OWNER_ROLE)
     chat.members.append(owner_membership)
 
     try:

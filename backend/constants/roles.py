@@ -1,0 +1,5 @@
+OWNER_ROLE = "owner"
+ADMIN_ROLE = "admin"
+MEMBER_ROLE = "member"
+
+PRIVILEGED_ROLES = {OWNER_ROLE, ADMIN_ROLE}
