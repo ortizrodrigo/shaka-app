@@ -7,7 +7,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from extensions import db
 from models import UserModel, TokenBlocklistModel
-from schemas import UserSchema
+from schemas import UserSchema, UserPublicSchema
+from decorators import admin_required
 
 from datetime import datetime, timezone
 
@@ -15,7 +16,8 @@ blp = Blueprint("users", __name__, description="Operations on Users")
 
 @blp.route("/user/<int:user_id>")
 class User(MethodView):
-  @blp.response(200, UserSchema)
+  @jwt_required()
+  @blp.response(200, UserPublicSchema)
   def get(self, user_id):
     user = UserModel.query.get_or_404(user_id)
     return user
@@ -23,6 +25,7 @@ class User(MethodView):
 
 @blp.route("/user")
 class UserList(MethodView):
+  @admin_required
   @blp.response(200, UserSchema(many=True))
   def get(self):
     return UserModel.query.all()
@@ -48,6 +51,7 @@ class UserList(MethodView):
       abort(500, message="An error occurred while inserting the user.")
 
     return user
+
 
 @blp.route("/me")
 class Me(MethodView):
