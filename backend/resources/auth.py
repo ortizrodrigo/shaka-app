@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 from flask_jwt_extended import (
   create_access_token,
   create_refresh_token,
+  decode_token,
   get_jwt,
   get_jwt_identity,
   jwt_required,
-  decode_token
 )
 
 from passlib.hash import argon2
@@ -21,11 +21,13 @@ from schemas import LoginSchema, TokenPairSchema
 
 blp = Blueprint("auth", __name__, description="Authentication")
 
-def build_token_payload(token, expires_delta):
+def build_token_payload(token):
+  decoded = decode_token(token)
+  expires_at = datetime.fromtimestamp(decoded["exp"], tz=timezone.utc)
   return {
     "token": token,
     "token_type": "Bearer",
-    "expires_at": datetime.now(timezone.utc) + expires_delta,
+    "expires_at": expires_at,
   }
 
 @blp.route("/auth/login")
@@ -43,8 +45,8 @@ class Login(MethodView):
     refresh_token = create_refresh_token(identity=str(user.id))
 
     return {
-      "access": build_token_payload(access_token, current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]),
-      "refresh": build_token_payload(refresh_token, current_app.config["JWT_REFRESH_TOKEN_EXPIRES"])
+      "access": build_token_payload(access_token),
+      "refresh": build_token_payload(refresh_token),
     }
 
 @blp.route("/auth/refresh")
@@ -73,8 +75,8 @@ class Refresh(MethodView):
     refresh_token = create_refresh_token(identity=identity)
 
     return {
-      "access": build_token_payload(access_token, current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]),
-      "refresh": build_token_payload(refresh_token, current_app.config["JWT_REFRESH_TOKEN_EXPIRES"])
+      "access": build_token_payload(access_token),
+      "refresh": build_token_payload(refresh_token),
     }
 
 @blp.route("/auth/logout")
