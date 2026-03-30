@@ -17,9 +17,13 @@ class ChatMember(MethodView):
   @jwt_required()
   @blp.response(200, ChatMemberSchema)
   def get(self, chat_member_id):
+    """Retrieve a specific chat membership (requires membership in the chat)."""
+
+    # extract requester's user_id from jwt and fetch chat member
     current_user_id = int(get_jwt_identity())
     chat_member = ChatMemberModel.query.get_or_404(chat_member_id)
 
+    # ensure requester belongs to the same chat as chat member
     if not get_membership(chat_member.chat_id, current_user_id):
       abort(403, message="You are not a member of this chat.")
 
@@ -31,8 +35,12 @@ class ChatMemberList(MethodView):
   @jwt_required()
   @blp.response(200, ChatMemberSchema(many=True))
   def get(self, chat_id):
+    """List all members of a chat (requires membership)."""
+
+    # extract requester's user_id from jwt
     current_user_id = int(get_jwt_identity())
 
+    # ensure requester belongs to the chat
     if not get_membership(chat_id, current_user_id):
       abort(403, message="You are not a member of this chat.")
 
@@ -42,22 +50,32 @@ class ChatMemberList(MethodView):
   @blp.arguments(ChatMemberAddSchema)
   @blp.response(201, ChatMemberSchema)
   def post(self, add_data, chat_id):
+    """Add a new member to the chat (owners/admins only)."""
+
+    # extract requester's user_id from jwt
     current_user_id = int(get_jwt_identity())
 
+    # ensure requester belongs to the chat
     requester = get_membership(chat_id, current_user_id)
     if not requester:
       abort(403, message="You are not a member of this chat.")
+
+    # ensure requester has admin or owner privileges
     if requester.role not in PRIVILEGED_ROLES:
       abort(403, message="Only owners and admins can add members.")
 
+    # check that target user exists
     invitee_id = add_data["user_id"]
     UserModel.query.get_or_404(invitee_id)
 
+    # prevent duplicate membership
     if get_membership(chat_id, invitee_id):
       abort(409, message="User is already a member of this chat.")
 
+    # create membership record (not yet persisted)
     new_member = ChatMemberModel(user_id=invitee_id, chat_id=chat_id, role="member")
 
+    # persist membership record
     try:
       db.session.add(new_member)
       db.session.commit()
@@ -75,16 +93,22 @@ class ChatMemberList(MethodView):
 class ChatMemberDetail(MethodView):
   @jwt_required()
   def delete(self, chat_id, target_user_id):
+    """Remove a member from the chat (role-based permissions apply)."""
+
+    # extract requester's user_id from jwt
     current_user_id = int(get_jwt_identity())
 
+    # ensure requester belongs to the chat
     requester = get_membership(chat_id, current_user_id)
     if not requester:
       abort(403, message="You are not a member of this chat.")
 
+    # ensure target belongs to the chat
     target = get_membership(chat_id, target_user_id)
     if not target:
       abort(404, message="User is not a member of this chat.")
 
+    # resolve user permissions
     current_user = UserModel.query.get(current_user_id)
     is_self = current_user_id == target_user_id
     is_app_admin = current_user and current_user.is_admin
@@ -105,8 +129,10 @@ class ChatMemberDetail(MethodView):
         abort(403, message="Admins cannot remove other admins or owners.")
 
     try:
+      # remove membership
       db.session.delete(target)
 
+      # handle ownership transfer or cleanup if owner is removed
       if target.role == OWNER_ROLE:
         transfer_or_dissolve_ownership(chat_id, target_user_id)
 
