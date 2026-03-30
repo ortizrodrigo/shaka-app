@@ -1,4 +1,5 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, validate
+from constants.roles import ADMIN_ROLE, MEMBER_ROLE
 
 class ChatMemberSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -8,4 +9,10 @@ class ChatMemberSchema(Schema):
     joined_at = fields.DateTime(dump_only=True)
 
 class ChatMemberAddSchema(Schema):
+    user_id = fields.Int(required=True)
+
+class ChatMemberRoleUpdateSchema(Schema):
+    role = fields.Str(required=True, validate=validate.OneOf([ADMIN_ROLE, MEMBER_ROLE]))
+ 
+class OwnerTransferSchema(Schema):
     user_id = fields.Int(required=True)

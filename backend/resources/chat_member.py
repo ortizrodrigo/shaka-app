@@ -5,9 +5,9 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from extensions import db
 from models import ChatMemberModel, UserModel
-from schemas import ChatMemberSchema, ChatMemberAddSchema
+from schemas import ChatMemberSchema, ChatMemberAddSchema, ChatMemberRoleUpdateSchema, OwnerTransferSchema
 from services.chat import get_membership, transfer_or_dissolve_ownership
-from constants.roles import OWNER_ROLE, PRIVILEGED_ROLES
+from constants.roles import OWNER_ROLE, ADMIN_ROLE, MEMBER_ROLE, PRIVILEGED_ROLES
 
 blp = Blueprint("chat_members", __name__, description="Operations on Chat Members")
 
@@ -142,3 +142,112 @@ class ChatMemberDetail(MethodView):
       abort(500, message="An error occurred while removing the member.")
 
     return {"message": "Member removed."}, 200
+  
+
+@blp.route("/chat/<int:chat_id>/members/<int:target_user_id>/role")
+class ChatMemberRole(MethodView):
+  @jwt_required()
+  @blp.arguments(ChatMemberRoleUpdateSchema)
+  @blp.response(200, ChatMemberSchema)
+  def patch(self, role_data, chat_id, target_user_id):
+    """
+    Promote or demote a member's role (admin <-> member).
+
+    Rules:
+    - owner cannot be promoted/demoted via this endpoint (use /transfer-owner).
+    - only owner and admins can change roles.
+    - admins can promote members to admin.
+    - only the owner can demote an admin.
+    """
+
+    # extract requester's user_id from jwt
+    current_user_id = int(get_jwt_identity())
+
+    # ensure requester belongs to the chat
+    requester = get_membership(chat_id, current_user_id)
+    if not requester:
+      abort(403, message="You are not a member of this chat.")
+
+    # ensure requester has admin or owner privileges
+    if requester.role not in PRIVILEGED_ROLES:
+      abort(403, message="Only owners and admins can change member roles.")
+
+    # ensure target belongs to the chat
+    target = get_membership(chat_id, target_user_id)
+    if not target:
+      abort(404, message="User is not a member of this chat.")
+
+    # ensure target is not the owner
+    if target.role == OWNER_ROLE:
+      abort(403, message="The owner's role cannot be changed here. Use the transfer ownership endpoint.")
+
+    # ensure target is not the requester
+    if current_user_id == target_user_id:
+      abort(403, message="You cannot change your own role.")
+
+    new_role = role_data["role"]
+
+    # Admins can only demote an admin if they are the owner
+    if target.role == ADMIN_ROLE and new_role == MEMBER_ROLE:
+      if requester.role != OWNER_ROLE:
+        abort(403, message="Only the owner can demote an admin.")
+
+    # update target's role
+    target.role = new_role
+
+    # persist target's role
+    try:
+      db.session.commit()
+    except SQLAlchemyError:
+      db.session.rollback()
+      abort(500, message="An error occurred while updating the member's role.")
+
+    return target
+ 
+ 
+@blp.route("/chat/<int:chat_id>/transfer-owner")
+class OwnerTransfer(MethodView):
+  @jwt_required()
+  @blp.arguments(OwnerTransferSchema)
+  @blp.response(200, ChatMemberSchema)
+  def post(self, transfer_data, chat_id):
+    """
+    Transfer chat ownership to another member (owner only).
+    The previous owner becomes an admin. Only one owner at a time.
+    """
+
+    # extract requester's user_id from jwt
+    current_user_id = int(get_jwt_identity())
+
+    # ensure requester belongs to the chat
+    requester = get_membership(chat_id, current_user_id)
+    if not requester:
+      abort(403, message="You are not a member of this chat.")
+
+    # ensure requester is the chat owner
+    if requester.role != OWNER_ROLE:
+      abort(403, message="Only the current owner can transfer ownership.")
+
+    new_owner_id = transfer_data["user_id"]
+
+    # ensure target is not the requester
+    if new_owner_id == current_user_id:
+      abort(400, message="You are already the owner.")
+
+    # ensure target belongs to the chat
+    target = get_membership(chat_id, new_owner_id)
+    if not target:
+      abort(404, message="Target user is not a member of this chat.")
+
+    # demote current owner to admin, promote target to owner
+    requester.role = ADMIN_ROLE
+    target.role = OWNER_ROLE
+
+    # persist role updates
+    try:
+      db.session.commit()
+    except SQLAlchemyError:
+      db.session.rollback()
+      abort(500, message="An error occurred while transferring ownership.")
+
+    return target
